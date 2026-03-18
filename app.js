@@ -196,7 +196,8 @@ document.getElementById('bucket-input').addEventListener('keydown', e => { if (e
 // ══════════════════════════════════════════════
 // RECENT HISTORY
 // ══════════════════════════════════════════════
-const RECENT_KEY = 'openrpc_recent';
+const RECENT_KEY        = 'openrpc_recent';
+const RECENT_BUCKETS_KEY = 'openrpc_recent_buckets';
 
 function saveRecent(spec, url) {
   try {
@@ -235,6 +236,40 @@ function renderRecent() {
 }
 
 renderRecent();
+
+function saveRecentBucket(url, bucket) {
+  try {
+    const list    = JSON.parse(localStorage.getItem(RECENT_BUCKETS_KEY) || '[]');
+    const entry   = { url, name: bucket };
+    const updated = [entry, ...list.filter(i => i.url !== url)].slice(0, 5);
+    localStorage.setItem(RECENT_BUCKETS_KEY, JSON.stringify(updated));
+    renderRecentBuckets();
+  } catch(e) {}
+}
+
+function renderRecentBuckets() {
+  try {
+    const list      = JSON.parse(localStorage.getItem(RECENT_BUCKETS_KEY) || '[]');
+    const section   = document.getElementById('recent-buckets-section');
+    const container = document.getElementById('recent-buckets-list');
+    if (!list.length) { section.style.display = 'none'; return; }
+    section.style.display = 'block';
+    container.innerHTML = list.map((item, i) =>
+      `<div class="recent-item" data-i="${i}">
+        <span class="recent-item-name">${escHtml(item.name)}</span>
+        <span class="recent-item-ver">bucket</span>
+      </div>`
+    ).join('');
+    container.querySelectorAll('.recent-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const item = list[+el.dataset.i];
+        if (item) { document.getElementById('bucket-input').value = item.url; loadBucket(); }
+      });
+    });
+  } catch(e) {}
+}
+
+renderRecentBuckets();
 
 // ══════════════════════════════════════════════
 // BUCKET BROWSER
@@ -296,6 +331,7 @@ async function loadBucket() {
     const root = await listObjects(endpoint, bucket, prefix);
     treeEl.innerHTML = '';
     renderTreeLevel(treeEl, root, endpoint, bucket);
+    saveRecentBucket(raw, bucket);
   } catch(e) {
     treeEl.innerHTML = `<div class="tree-error">Failed to list bucket: ${escHtml(e.message)}<br><br>Check the URL and that the bucket is publicly readable.</div>`;
   }

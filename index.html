@@ -37,7 +37,7 @@
 
     <!-- Bucket -->
     <div class="load-panel" id="tab-bucket">
-      <div class="load-label">MinIO / S3 Folder URL</div>
+      <div class="load-label">S3 Bucket URL</div>
       <div class="url-row">
         <input type="text" id="bucket-input" placeholder="http://localhost:9000/my-bucket/specs/" />
         <button class="btn-primary" onclick="loadBucket()">Browse</button>
@@ -46,6 +46,10 @@
         S3-compatible endpoint including bucket and optional folder prefix.
       </p>
       <div class="error-msg" id="bucket-error"></div>
+      <div class="recent-section" id="recent-buckets-section" style="display:none">
+        <div class="recent-label">Recently browsed</div>
+        <div class="recent-list" id="recent-buckets-list"></div>
+      </div>
     </div>
 
     <!-- Paste -->
