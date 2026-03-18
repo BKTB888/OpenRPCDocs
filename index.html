@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenRPC Viewer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --bg: #0b0d11;
+    --surface: #12151c;
+    --surface2: #1a1e28;
+    --border: #252a38;
+    --accent: #5cffe4;
+    --accent2: #ff6b6b;
+    --accent3: #ffd166;
+    --text: #e2e8f4;
+    --muted: #6b7591;
+    --method: #a78bfa;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    min-height: 100vh;
+  }
+
+  /* ─── LANDING ─── */
+  #landing {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+  }
+
+  .landing-logo {
+    font-family: 'Syne', sans-serif;
+    font-size: 2.6rem;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+
+  .landing-logo span { color: var(--accent); }
+
+  .landing-sub {
+    font-size: 0.75rem;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 48px;
+  }
+
+  .load-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    width: 100%;
+    max-width: 600px;
+    overflow: hidden;
+  }
+
+  .load-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .load-tab {
+    flex: 1;
+    padding: 14px;
+    text-align: center;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  .load-tab:hover { color: var(--text); }
+  .load-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .load-panel { display: none; padding: 28px; }
+  .load-panel.active { display: block; }
+
+  .load-label {
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+
+  .url-row { display: flex; gap: 8px; }
+
+  input[type="text"], textarea {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.75rem;
+    padding: 10px 14px;
+    outline: none;
+    transition: border-color 0.15s;
+    width: 100%;
+  }
+
+  input[type="text"]:focus, textarea:focus { border-color: var(--accent); }
+
+  textarea {
+    min-height: 180px;
+    resize: vertical;
+    line-height: 1.6;
+  }
+
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--accent);
+    color: #0b0d11;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+    white-space: nowrap;
+  }
+
+  .btn-primary:hover { opacity: 0.85; }
+
+  .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    padding: 10px 16px;
+    border-radius: 6px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+
+  .btn-ghost:hover { color: var(--text); border-color: var(--text); }
+
+  .file-drop {
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+    padding: 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+  }
+
+  .file-drop:hover, .file-drop.dragover {
+    border-color: var(--accent);
+    background: rgba(92,255,228,0.04);
+  }
+
+  .file-drop input[type="file"] {
+    position: absolute; inset: 0;
+    opacity: 0; cursor: pointer;
+    width: 100%; height: 100%;
+  }
+
+  .file-drop-icon { font-size: 2rem; margin-bottom: 10px; }
+
+  .file-drop-text {
+    font-size: 0.75rem;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  .file-drop-text strong { color: var(--accent); }
+
+  .error-msg {
+    background: rgba(255,107,107,0.1);
+    border: 1px solid rgba(255,107,107,0.3);
+    color: var(--accent2);
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    margin-top: 12px;
+    display: none;
+    line-height: 1.5;
+  }
+
+  .error-msg.show { display: block; }
+
+  .recent-section {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  .recent-label {
+    font-size: 0.6rem;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .recent-list { display: flex; flex-direction: column; gap: 4px; }
+
+  .recent-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.7rem;
+    color: var(--muted);
+    transition: all 0.12s;
+  }
+
+  .recent-item:hover { background: var(--surface2); color: var(--text); }
+  .recent-item-name { color: var(--accent); font-weight: 500; }
+  .recent-item-ver  { font-size: 0.62rem; color: var(--muted); }
+
+  /* ─── DOCS LAYOUT ─── */
+  #docs { display: none; min-height: 100vh; }
+  #docs.visible { display: flex; }
+
+  aside {
+    width: 260px;
+    min-width: 260px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+  }
+
+  .sidebar-top {
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.65rem;
+    color: var(--muted);
+    cursor: pointer;
+    margin-bottom: 14px;
+    transition: color 0.15s;
+    background: none;
+    border: none;
+    font-family: inherit;
+    padding: 0;
+  }
+
+  .back-btn:hover { color: var(--accent); }
+
+  .sidebar-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 1rem;
+    color: var(--accent);
+    letter-spacing: -0.02em;
+    word-break: break-word;
+  }
+
+  .sidebar-sub {
+    font-size: 0.62rem;
+    color: var(--muted);
+    margin-top: 3px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .version-badge {
+    display: inline-block;
+    margin-top: 7px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.58rem;
+    padding: 2px 8px;
+    border-radius: 20px;
+    letter-spacing: 0.05em;
+  }
+
+  nav { padding: 12px 0; flex: 1; }
+
+  .nav-section {
+    padding: 8px 20px 4px;
+    font-size: 0.58rem;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 20px;
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 0.68rem;
+    transition: all 0.12s;
+    border-left: 2px solid transparent;
+    text-decoration: none;
+    word-break: break-all;
+  }
+
+  .nav-item:hover { color: var(--text); background: var(--surface2); }
+  .nav-item.active { color: var(--accent); border-left-color: var(--accent); background: rgba(92,255,228,0.05); }
+
+  .nav-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--method);
+    flex-shrink: 0;
+  }
+
+  .nav-dot.schema-dot { background: var(--accent3); }
+
+  /* ─── MAIN CONTENT ─── */
+  main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 48px 60px;
+    max-width: 900px;
+  }
+
+  .page-header {
+    margin-bottom: 48px;
+    padding-bottom: 28px;
+    border-bottom: 1px solid var(--border);
+    animation: fadeUp 0.4s ease both;
+  }
+
+  .page-header h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: 2.2rem;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    color: var(--text);
+    line-height: 1.1;
+    word-break: break-word;
+  }
+
+  .page-header h1 span { color: var(--accent); }
+
+  .page-desc {
+    margin-top: 12px;
+    font-size: 0.78rem;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+
+  .tag-row { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+
+  .tag {
+    font-size: 0.62rem;
+    padding: 3px 10px;
+    border-radius: 4px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+
+  .tag-rpc  { background: rgba(167,139,250,0.15); color: var(--method); border: 1px solid rgba(167,139,250,0.3); }
+  .tag-info { background: rgba(92,255,228,0.12);  color: var(--accent); border: 1px solid rgba(92,255,228,0.3); }
+
+  .methods { display: flex; flex-direction: column; gap: 18px; }
+
+  .method-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    animation: fadeUp 0.35s ease both;
+    transition: border-color 0.2s;
+  }
+
+  .method-card:hover { border-color: rgba(92,255,228,0.2); }
+
+  .method-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 22px;
+    cursor: pointer;
+    gap: 14px;
+    user-select: none;
+  }
+
+  .method-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+  .method-badge {
+    font-family: 'Syne', sans-serif;
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 3px 7px;
+    border-radius: 4px;
+    background: rgba(167,139,250,0.15);
+    color: var(--method);
+    border: 1px solid rgba(167,139,250,0.3);
+    flex-shrink: 0;
+  }
+
+  .method-name {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.01em;
+    word-break: break-all;
+  }
+
+  .chevron {
+    color: var(--muted);
+    font-size: 0.75rem;
+    transition: transform 0.2s;
+    flex-shrink: 0;
+  }
+
+  .method-card.open .chevron { transform: rotate(180deg); }
+
+  .method-body {
+    display: none;
+    padding: 0 22px 22px;
+    border-top: 1px solid var(--border);
+  }
+
+  .method-card.open .method-body { display: block; }
+
+  .section-label {
+    font-size: 0.6rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 18px 0 9px;
+  }
+
+  .params-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.73rem;
+  }
+
+  .params-table th {
+    text-align: left;
+    padding: 7px 12px;
+    color: var(--muted);
+    font-size: 0.58rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+  }
+
+  .params-table td {
+    padding: 9px 12px;
+    border-bottom: 1px solid rgba(37,42,56,0.5);
+    vertical-align: top;
+    line-height: 1.5;
+  }
+
+  .params-table tr:last-child td { border-bottom: none; }
+
+  .param-name { color: var(--accent); font-weight: 500; }
+
+  .param-type {
+    color: var(--accent3);
+    font-size: 0.67rem;
+    background: rgba(255,209,102,0.08);
+    padding: 2px 6px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+
+  .param-req { color: var(--accent2); font-size: 0.63rem; font-weight: 600; }
+  .param-opt { color: var(--muted); font-size: 0.63rem; }
+
+  .schema-block {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-size: 0.7rem;
+    line-height: 1.9;
+  }
+
+  .schema-prop { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+  .schema-key { color: var(--accent); }
+  .schema-type-label { color: var(--accent3); font-size: 0.63rem; }
+  .schema-req-mark { color: var(--accent2); font-size: 0.63rem; }
+
+  .no-params {
+    font-size: 0.7rem;
+    color: var(--muted);
+    font-style: italic;
+    padding: 6px 0;
+  }
+
+  .method-desc {
+    font-size: 0.73rem;
+    color: var(--muted);
+    line-height: 1.6;
+    margin-top: 14px;
+  }
+
+  .schemas-section { margin-top: 52px; }
+
+  .schemas-section h2 {
+    font-family: 'Syne', sans-serif;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 18px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .schema-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin-bottom: 14px;
+    animation: fadeUp 0.35s ease both;
+  }
+
+  .schema-card-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--method);
+    margin-bottom: 12px;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  @media (max-width: 700px) {
+    main { padding: 28px 18px; }
+    aside { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════ LANDING ══════════════════ -->
+<div id="landing">
+  <div class="landing-logo">Open<span>RPC</span> Viewer</div>
+  <div class="landing-sub">Load any OpenRPC spec to browse its docs</div>
+
+  <div class="load-card">
+    <div class="load-tabs">
+      <div class="load-tab active" data-tab="url">URL</div>
+      <div class="load-tab" data-tab="paste">Paste JSON</div>
+      <div class="load-tab" data-tab="file">File</div>
+    </div>
+
+    <!-- URL -->
+    <div class="load-panel active" id="tab-url">
+      <div class="load-label">Spec URL</div>
+      <div class="url-row">
+        <input type="text" id="url-input" placeholder="https://example.com/openrpc.json" />
+        <button class="btn-primary" onclick="loadFromUrl()">Load</button>
+      </div>
+      <div class="error-msg" id="url-error"></div>
+      <div class="recent-section" id="recent-section" style="display:none">
+        <div class="recent-label">Recently loaded</div>
+        <div class="recent-list" id="recent-list"></div>
+      </div>
+    </div>
+
+    <!-- Paste -->
+    <div class="load-panel" id="tab-paste">
+      <div class="load-label">Paste OpenRPC JSON</div>
+      <textarea id="paste-input" placeholder='{&#10;  "openrpc": "1.3.2",&#10;  "info": { "title": "My API", "version": "1.0.0" },&#10;  "methods": [...]&#10;}'></textarea>
+      <div style="margin-top:10px;display:flex;gap:8px;">
+        <button class="btn-primary" onclick="loadFromPaste()">Parse &amp; View</button>
+        <button class="btn-ghost" onclick="document.getElementById('paste-input').value=''">Clear</button>
+      </div>
+      <div class="error-msg" id="paste-error"></div>
+    </div>
+
+    <!-- File -->
+    <div class="load-panel" id="tab-file">
+      <div class="load-label">Drop or select a .json file</div>
+      <div class="file-drop" id="file-drop">
+        <input type="file" id="file-input" accept=".json,application/json" onchange="loadFromFile(this)" />
+        <div class="file-drop-icon">📄</div>
+        <div class="file-drop-text">
+          <strong>Click to browse</strong> or drag &amp; drop<br>
+          Accepts <code>.json</code> OpenRPC spec files
+        </div>
+      </div>
+      <div class="error-msg" id="file-error"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════ DOCS ══════════════════ -->
+<div id="docs">
+  <aside>
+    <div class="sidebar-top">
+      <button class="back-btn" onclick="showLanding()">&#8592; back</button>
+      <div class="sidebar-title" id="sidebar-title">API</div>
+      <div class="sidebar-sub" id="sidebar-sub">JSON-RPC</div>
+      <span class="version-badge" id="sidebar-badge"></span>
+    </div>
+    <nav id="sidebar-nav"></nav>
+  </aside>
+  <main id="main-content"></main>
+</div>
+
+<script>
+// ── TAB SWITCHING ──────────────────────────────
+document.querySelectorAll('.load-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const name = tab.dataset.tab;
+    document.querySelectorAll('.load-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.load-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-' + name).classList.add('active');
+  });
+});
+
+// Drag-and-drop
+const fileDrop = document.getElementById('file-drop');
+fileDrop.addEventListener('dragover', e => { e.preventDefault(); fileDrop.classList.add('dragover'); });
+fileDrop.addEventListener('dragleave', () => fileDrop.classList.remove('dragover'));
+fileDrop.addEventListener('drop', e => {
+  e.preventDefault(); fileDrop.classList.remove('dragover');
+  const f = e.dataTransfer.files[0];
+  if (f) readFile(f);
+});
+
+// ── ERROR HELPERS ──────────────────────────────
+function showError(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = msg; el.classList.add('show');
+}
+function clearError(id) {
+  const el = document.getElementById(id);
+  el.textContent = ''; el.classList.remove('show');
+}
+
+// ── LOADERS ────────────────────────────────────
+async function loadFromUrl() {
+  clearError('url-error');
+  const url = document.getElementById('url-input').value.trim();
+  if (!url) { showError('url-error', 'Please enter a URL.'); return; }
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const spec = await res.json();
+    saveRecent(spec, url);
+    renderDocs(spec);
+  } catch (e) {
+    showError('url-error', 'Failed to load: ' + e.message + '. (CORS may block cross-origin requests — try Paste or File tab.)');
+  }
+}
+
+function loadFromPaste() {
+  clearError('paste-error');
+  const raw = document.getElementById('paste-input').value.trim();
+  if (!raw) { showError('paste-error', 'Paste your OpenRPC JSON above.'); return; }
+  try { renderDocs(JSON.parse(raw)); }
+  catch (e) { showError('paste-error', 'Invalid JSON: ' + e.message); }
+}
+
+function loadFromFile(input) {
+  clearError('file-error');
+  const f = input.files[0];
+  if (f) readFile(f);
+}
+
+function readFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try { renderDocs(JSON.parse(e.target.result)); }
+    catch (err) { showError('file-error', 'Invalid JSON: ' + err.message); }
+  };
+  reader.readAsText(file);
+}
+
+// Allow Enter key in URL input
+document.getElementById('url-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') loadFromUrl();
+});
+
+// ── RECENT HISTORY ─────────────────────────────
+function saveRecent(spec, url) {
+  try {
+    const key = 'openrpc_recent';
+    const list = JSON.parse(localStorage.getItem(key) || '[]');
+    const entry = { title: (spec.info && spec.info.title) || 'Untitled', version: (spec.info && spec.info.version) || '?', url };
+    const filtered = list.filter(i => i.url !== url).slice(0, 4);
+    filtered.unshift(entry);
+    localStorage.setItem(key, JSON.stringify(filtered));
+    renderRecent();
+  } catch(e) {}
+}
+
+function renderRecent() {
+  try {
+    const list = JSON.parse(localStorage.getItem('openrpc_recent') || '[]');
+    const section = document.getElementById('recent-section');
+    const container = document.getElementById('recent-list');
+    if (!list.length) { section.style.display = 'none'; return; }
+    section.style.display = 'block';
+    container.innerHTML = list.map(item =>
+      '<div class="recent-item" onclick="loadRecentUrl(\'' + escAttr(item.url) + '\')">' +
+        '<span class="recent-item-name">' + escHtml(item.title) + '</span>' +
+        '<span class="recent-item-ver">v' + escHtml(item.version) + '</span>' +
+      '</div>'
+    ).join('');
+  } catch(e) {}
+}
+
+async function loadRecentUrl(url) {
+  document.getElementById('url-input').value = url;
+  await loadFromUrl();
+}
+
+renderRecent();
+
+// ── NAVIGATION ─────────────────────────────────
+function showLanding() {
+  document.getElementById('landing').style.display = 'flex';
+  document.getElementById('docs').classList.remove('visible');
+  document.title = 'OpenRPC Viewer';
+}
+
+// ── SCHEMA HELPERS ─────────────────────────────
+function resolveRef(ref, components) {
+  if (!ref) return null;
+  const name = ref.split('/').pop();
+  return (components && components.schemas && components.schemas[name]) || null;
+}
+
+function resolveSchema(schema, components) {
+  if (!schema) return null;
+  if (schema.$ref) return resolveSchema(resolveRef(schema.$ref, components), components);
+  return schema;
+}
+
+function typeLabel(schema, components) {
+  if (!schema) return 'any';
+  if (schema.$ref) return schema.$ref.split('/').pop();
+  if (schema.type === 'array' && schema.items) {
+    return 'array&lt;' + typeLabel(schema.items, components) + '&gt;';
+  }
+  const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+  const base = types.filter(Boolean).join(' | ') || 'any';
+  return base + (schema.format ? ' (' + schema.format + ')' : '');
+}
+
+function renderSchemaProps(schema, components) {
+  const resolved = resolveSchema(schema, components);
+  if (!resolved || resolved.type !== 'object' || !resolved.properties) return null;
+  const required = resolved.required || [];
+  const rows = Object.entries(resolved.properties).map(function(entry) {
+    const k = entry[0], v = entry[1];
+    const req = required.indexOf(k) !== -1;
+    return '<tr>' +
+      '<td class="param-name">' + escHtml(k) + '</td>' +
+      '<td><span class="param-type">' + typeLabel(v, components) + '</span></td>' +
+      '<td class="' + (req ? 'param-req' : 'param-opt') + '">' + (req ? 'required' : 'optional') + '</td>' +
+    '</tr>';
+  }).join('');
+  return '<table class="params-table"><thead><tr><th>Field</th><th>Type</th><th>Required</th></tr></thead><tbody>' + rows + '</tbody></table>';
+}
+
+// ── MAIN RENDER ────────────────────────────────
+function renderDocs(spec) {
+  if (!spec.openrpc || !spec.info || !spec.methods) {
+    alert('Not a valid OpenRPC spec — missing openrpc, info, or methods fields.');
+    return;
+  }
+
+  const title    = spec.info.title       || 'Untitled API';
+  const version  = spec.info.version     || '?';
+  const desc     = spec.info.description || '';
+  const components = spec.components || {};
+  const methods  = spec.methods || [];
+  const schemas  = (components.schemas) || {};
+
+  document.title = title + ' — OpenRPC Viewer';
+  document.getElementById('sidebar-title').textContent = title;
+  document.getElementById('sidebar-sub').textContent   = 'OpenRPC ' + spec.openrpc;
+  document.getElementById('sidebar-badge').textContent = 'v' + version + ' · OpenRPC ' + spec.openrpc;
+
+  // Sidebar nav
+  const nav = document.getElementById('sidebar-nav');
+  let navHtml = '<div class="nav-section">Methods</div>';
+  methods.forEach(function(m) {
+    navHtml += '<a class="nav-item" href="#m-' + safeId(m.name) + '"><span class="nav-dot"></span>' + escHtml(m.name) + '</a>';
+  });
+  if (Object.keys(schemas).length) {
+    navHtml += '<div class="nav-section" style="margin-top:12px">Schemas</div>';
+    navHtml += '<a class="nav-item" href="#schemas"><span class="nav-dot schema-dot"></span>Component Schemas</a>';
+  }
+  nav.innerHTML = navHtml;
+
+  // Page header
+  let html = '<div class="page-header">' +
+    '<h1>' + escHtml(title) + ' <span>API</span></h1>' +
+    (desc ? '<p class="page-desc">' + escHtml(desc) + '</p>' : '') +
+    '<div class="tag-row">' +
+      '<span class="tag tag-rpc">JSON-RPC 2.0</span>' +
+      '<span class="tag tag-info">OpenRPC ' + escHtml(spec.openrpc) + '</span>' +
+      '<span class="tag tag-info">v' + escHtml(version) + '</span>' +
+    '</div></div>';
+
+  html += '<div class="methods">';
+
+  methods.forEach(function(method, idx) {
+    const params   = method.params || [];
+    const result   = method.result;
+    const methodDesc = method.description || method.summary || '';
+
+    // Params
+    let paramsHtml;
+    if (params.length === 0) {
+      paramsHtml = '<p class="no-params">No parameters required.</p>';
+    } else {
+      const rows = params.map(function(p) {
+        const schema = p.schema || {};
+        const req    = p.required !== false;
+        const pdesc  = p.description || schema.description || '';
+        return '<tr>' +
+          '<td class="param-name">' + escHtml(p.name) + '</td>' +
+          '<td><span class="param-type">' + typeLabel(schema, components) + '</span></td>' +
+          '<td class="' + (req ? 'param-req' : 'param-opt') + '">' + (req ? 'required' : 'optional') + '</td>' +
+          '<td style="font-size:0.68rem;color:var(--muted)">' + escHtml(pdesc) + '</td>' +
+        '</tr>';
+      }).join('');
+      paramsHtml = '<table class="params-table"><thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead><tbody>' + rows + '</tbody></table>';
+    }
+
+    // Result
+    let resultHtml = '';
+    if (result) {
+      const rName  = (result.schema && result.schema.$ref) ? result.schema.$ref.split('/').pop() : '';
+      const label  = rName ? 'Returns &#8212; ' + rName : 'Returns';
+      const propsTable = renderSchemaProps(result.schema, components);
+      if (propsTable) {
+        resultHtml = '<div class="section-label">' + label + '</div>' + propsTable;
+      } else {
+        const rSchema = resolveSchema(result.schema, components);
+        if (rSchema) {
+          const req = result.required !== false;
+          resultHtml = '<div class="section-label">' + label + '</div>' +
+            '<div class="schema-block"><div class="schema-prop">' +
+              '<span class="schema-key">result</span>' +
+              '<span class="schema-type-label">' + typeLabel(rSchema, components) + '</span>' +
+              (req ? '<span class="schema-req-mark">required</span>' : '<span class="param-opt">optional</span>') +
+            '</div></div>';
+        }
+      }
+    }
+
+    html += '<div class="method-card' + (idx === 0 ? ' open' : '') + '" id="m-' + safeId(method.name) + '" style="animation-delay:' + (idx * 0.04) + 's">' +
+      '<div class="method-header" onclick="toggleCard(this)">' +
+        '<div class="method-left">' +
+          '<span class="method-badge">RPC</span>' +
+          '<span class="method-name">' + escHtml(method.name) + '</span>' +
+        '</div>' +
+        '<span class="chevron">&#9660;</span>' +
+      '</div>' +
+      '<div class="method-body">' +
+        (methodDesc ? '<p class="method-desc">' + escHtml(methodDesc) + '</p>' : '') +
+        '<div class="section-label">Parameters</div>' +
+        paramsHtml +
+        resultHtml +
+      '</div>' +
+    '</div>';
+  });
+
+  html += '</div>'; // /methods
+
+  // Schemas
+  if (Object.keys(schemas).length) {
+    html += '<div class="schemas-section" id="schemas"><h2>Component Schemas</h2>';
+    Object.keys(schemas).forEach(function(name, idx) {
+      const schema = schemas[name];
+      const propsTable = renderSchemaProps(schema, components);
+      html += '<div class="schema-card" id="schema-' + safeId(name) + '" style="animation-delay:' + (idx * 0.04) + 's">' +
+        '<div class="schema-card-name">' + escHtml(name) + '</div>' +
+        (propsTable || '<p style="font-size:0.7rem;color:var(--muted)"><span class="param-type">' + typeLabel(schema, components) + '</span></p>') +
+      '</div>';
+    });
+    html += '</div>';
+  }
+
+  document.getElementById('main-content').innerHTML = html;
+  document.getElementById('landing').style.display = 'none';
+  document.getElementById('docs').classList.add('visible');
+  setupScrollTracking();
+}
+
+// ── UTILS ──────────────────────────────────────
+function toggleCard(header) {
+  header.closest('.method-card').classList.toggle('open');
+}
+
+function escHtml(str) {
+  if (str == null) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function escAttr(str) {
+  return String(str || '').replace(/'/g, "\\'");
+}
+
+function safeId(str) {
+  return String(str).replace(/[^a-zA-Z0-9_-]/g,'_');
+}
+
+function setupScrollTracking() {
+  const main = document.getElementById('main-content');
+  main.addEventListener('scroll', function() {
+    const cards = main.querySelectorAll('[id]');
+    let current = '';
+    cards.forEach(function(el) {
+      if (el.getBoundingClientRect().top < 140) current = el.id;
+    });
+    document.querySelectorAll('#sidebar-nav .nav-item').forEach(function(l) {
+      l.classList.toggle('active', l.getAttribute('href') === '#' + current);
+    });
+  }, { passive: true });
+
+  document.querySelectorAll('#sidebar-nav .nav-item').forEach(function(l) {
+    l.addEventListener('click', function(e) {
+      e.preventDefault();
+      const target = document.getElementById(l.getAttribute('href').slice(1));
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+}
+</script>
+</body>
+</html>
