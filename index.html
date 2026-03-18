@@ -16,39 +16,24 @@
   <div class="load-card">
     <div class="load-tabs">
       <div class="load-tab active" data-tab="url">URL</div>
-      <div class="load-tab" data-tab="bucket">Bucket</div>
       <div class="load-tab" data-tab="paste">Paste JSON</div>
       <div class="load-tab" data-tab="file">File</div>
     </div>
 
-    <!-- URL -->
+    <!-- URL (handles both specs and S3/MinIO buckets automatically) -->
     <div class="load-panel active" id="tab-url">
-      <div class="load-label">Spec URL</div>
+      <div class="load-label">Spec URL or S3 Bucket URL</div>
       <div class="url-row">
-        <input type="text" id="url-input" placeholder="https://example.com/openrpc.json" />
+        <input type="text" id="url-input" placeholder="https://example.com/openrpc.json  or  http://localhost:9000/bucket/prefix/" />
         <button class="btn-primary" onclick="loadFromUrl()">Load</button>
       </div>
+      <p style="margin-top:8px;font-size:0.62rem;color:var(--muted);line-height:1.6;">
+        Paste a spec URL or an S3-compatible bucket URL — the viewer will detect which one automatically.
+      </p>
       <div class="error-msg" id="url-error"></div>
       <div class="recent-section" id="recent-section" style="display:none">
         <div class="recent-label">Recently loaded</div>
         <div class="recent-list" id="recent-list"></div>
-      </div>
-    </div>
-
-    <!-- Bucket -->
-    <div class="load-panel" id="tab-bucket">
-      <div class="load-label">S3 Bucket URL</div>
-      <div class="url-row">
-        <input type="text" id="bucket-input" placeholder="http://localhost:9000/my-bucket/specs/" />
-        <button class="btn-primary" onclick="loadBucket()">Browse</button>
-      </div>
-      <p style="margin-top:8px;font-size:0.62rem;color:var(--muted);line-height:1.6;">
-        S3-compatible endpoint including bucket and optional folder prefix.
-      </p>
-      <div class="error-msg" id="bucket-error"></div>
-      <div class="recent-section" id="recent-buckets-section" style="display:none">
-        <div class="recent-label">Recently browsed</div>
-        <div class="recent-list" id="recent-buckets-list"></div>
       </div>
     </div>
 

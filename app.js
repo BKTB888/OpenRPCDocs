@@ -80,15 +80,10 @@ function handleBack() {
 // SHARE
 // ══════════════════════════════════════════════
 function copyShareLink() {
-  const base = window.location.origin + window.location.pathname;
-  let shareUrl;
-  if (currentBucketUrl) {
-    shareUrl = base + '?bucket=' + encodeURIComponent(currentBucketUrl);
-  } else if (currentSpecUrl) {
-    shareUrl = base + '?url=' + encodeURIComponent(currentSpecUrl);
-  } else {
-    return;
-  }
+  const base     = window.location.origin + window.location.pathname;
+  const target   = currentBucketUrl || currentSpecUrl;
+  if (!target) return;
+  const shareUrl = base + '?url=' + encodeURIComponent(target);
 
   navigator.clipboard.writeText(shareUrl)
     .then(() => flashShareBtn('Copied!'))
@@ -96,22 +91,20 @@ function copyShareLink() {
 }
 
 function flashShareBtn(label) {
-  const btn   = document.getElementById('share-btn');
-  const span  = document.getElementById('share-btn-label');
+  const btn  = document.getElementById('share-btn');
+  const span = document.getElementById('share-btn-label');
   btn.classList.add('copied');
   span.textContent = label;
   setTimeout(() => { btn.classList.remove('copied'); span.textContent = 'Share'; }, 2000);
 }
 
 function updateShareBtn() {
-  const btn = document.getElementById('share-btn');
+  const btn    = document.getElementById('share-btn');
   const active = currentSpecUrl || currentBucketUrl;
   btn.toggleAttribute('disabled', !active);
-  btn.title = currentBucketUrl
-    ? 'Copy shareable link to this bucket'
-    : currentSpecUrl
-      ? 'Copy shareable link to this spec'
-      : 'Share is only available when a spec or bucket is loaded';
+  btn.title = currentBucketUrl ? 'Copy shareable link to this bucket'
+    : currentSpecUrl           ? 'Copy shareable link to this spec'
+    : 'Share is only available when a spec or bucket is loaded';
 }
 
 // ══════════════════════════════════════════════
@@ -136,30 +129,120 @@ fileDrop.addEventListener('dragleave', ()  => fileDrop.classList.remove('dragove
 fileDrop.addEventListener('drop', e => {
   e.preventDefault();
   fileDrop.classList.remove('dragover');
-  const f = e.dataTransfer.files[0];
-  if (f) readFile(f);
+  if (e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]);
 });
 
 // ══════════════════════════════════════════════
-// LOADERS
+// RECENT HISTORY  (unified — specs and buckets in one list)
+// ══════════════════════════════════════════════
+const RECENT_KEY = 'openrpc_recent';
+
+function saveRecent(entry) {
+  // entry: { url, title, version, type: 'spec'|'bucket' }
+  try {
+    const list    = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+    const updated = [entry, ...list.filter(i => i.url !== entry.url)].slice(0, 8);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(updated));
+    renderRecent();
+  } catch(e) {}
+}
+
+function renderRecent() {
+  try {
+    const list      = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+    const section   = document.getElementById('recent-section');
+    const container = document.getElementById('recent-list');
+    if (!list.length) { section.style.display = 'none'; return; }
+    section.style.display = 'block';
+    container.innerHTML = list.map((item, i) =>
+      `<div class="recent-item" data-i="${i}">
+        <span class="recent-item-name">${escHtml(item.title)}</span>
+        <span class="recent-item-ver">${item.type === 'bucket' ? 'bucket' : 'v' + escHtml(item.version)}</span>
+      </div>`
+    ).join('');
+    container.querySelectorAll('.recent-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const item = list[+el.dataset.i];
+        if (!item) return;
+        document.getElementById('url-input').value = item.url;
+        loadFromUrl();
+      });
+    });
+  } catch(e) {}
+}
+
+renderRecent();
+
+// ══════════════════════════════════════════════
+// SMART URL LOADER
+// Fetches the URL, detects whether it's a bucket listing or a spec, routes accordingly
 // ══════════════════════════════════════════════
 async function loadFromUrl() {
   clearError('url-error');
   const url = document.getElementById('url-input').value.trim();
   if (!url) { showError('url-error', 'Please enter a URL.'); return; }
+
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    const spec = await res.json();
-    currentSpecUrl   = url;
-    currentBucketUrl = null;
-    saveRecent(spec, url);
-    renderDocs(spec, 'url');
+    const text = await res.text();
+
+    if (text.trimStart().startsWith('<') && text.includes('ListBucketResult')) {
+      openBucketFromText(url);
+    } else {
+      openSpecFromText(url, text);
+    }
   } catch (e) {
     showError('url-error', 'Failed to load: ' + e.message + '. (CORS may block cross-origin requests — try Paste or File tab.)');
   }
 }
 
+function openSpecFromText(url, text) {
+  try {
+    const spec = JSON.parse(text);
+    currentSpecUrl   = url;
+    currentBucketUrl = null;
+    saveRecent({ url, title: spec.info?.title || 'Untitled', version: spec.info?.version || '?', type: 'spec' });
+    renderDocs(spec, 'url');
+  } catch(e) {
+    showError('url-error', 'Not valid JSON or OpenRPC: ' + e.message);
+  }
+}
+
+async function openBucketFromText(url) {
+  const parsed = parseBucketUrl(url);
+  if (!parsed) { showError('url-error', 'Could not parse as a bucket URL.'); return; }
+  const { endpoint, bucket, prefix } = parsed;
+
+  currentBucketUrl = url;
+  currentSpecUrl   = null;
+
+  document.getElementById('landing').style.display = 'none';
+  document.getElementById('docs').classList.add('visible');
+  document.getElementById('bucket-url-display').textContent = `${endpoint}/${bucket}/${prefix}`;
+  setSidebarHeader({ title: bucket, sub: 'S3 Bucket', badge: prefix || '/' });
+  updateShareBtn();
+  showSidebarPanel('tree');
+  document.getElementById('main-content').innerHTML = placeholder('📂', 'Select a spec from the tree to view its docs');
+
+  const treeEl = document.getElementById('bucket-tree');
+  treeEl.innerHTML = '<div class="tree-loading">Loading…</div>';
+  try {
+    // Re-fetch with proper S3 list params so CommonPrefixes (folders) are included
+    const listing = await listObjects(endpoint, bucket, prefix);
+    treeEl.innerHTML = '';
+    renderTreeLevel(treeEl, listing, endpoint, bucket);
+    saveRecent({ url, title: bucket, version: '', type: 'bucket' });
+  } catch(e) {
+    treeEl.innerHTML = `<div class="tree-error">Failed to list bucket: ${escHtml(e.message)}</div>`;
+  }
+}
+
+document.getElementById('url-input').addEventListener('keydown', e => { if (e.key === 'Enter') loadFromUrl(); });
+
+// ══════════════════════════════════════════════
+// PASTE / FILE LOADERS
+// ══════════════════════════════════════════════
 function loadFromPaste() {
   clearError('paste-error');
   const raw = document.getElementById('paste-input').value.trim();
@@ -190,96 +273,13 @@ function readFile(file) {
   reader.readAsText(file);
 }
 
-document.getElementById('url-input').addEventListener('keydown',    e => { if (e.key === 'Enter') loadFromUrl(); });
-document.getElementById('bucket-input').addEventListener('keydown', e => { if (e.key === 'Enter') loadBucket(); });
-
-// ══════════════════════════════════════════════
-// RECENT HISTORY
-// ══════════════════════════════════════════════
-const RECENT_KEY        = 'openrpc_recent';
-const RECENT_BUCKETS_KEY = 'openrpc_recent_buckets';
-
-function saveRecent(spec, url) {
-  try {
-    const list = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
-    const entry = {
-      title:   spec.info?.title   || 'Untitled',
-      version: spec.info?.version || '?',
-      url,
-    };
-    const updated = [entry, ...list.filter(i => i.url !== url)].slice(0, 5);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(updated));
-    renderRecent();
-  } catch(e) {}
-}
-
-function renderRecent() {
-  try {
-    const list      = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
-    const section   = document.getElementById('recent-section');
-    const container = document.getElementById('recent-list');
-    if (!list.length) { section.style.display = 'none'; return; }
-    section.style.display = 'block';
-    container.innerHTML = list.map((item, i) =>
-      `<div class="recent-item" data-i="${i}">
-        <span class="recent-item-name">${escHtml(item.title)}</span>
-        <span class="recent-item-ver">v${escHtml(item.version)}</span>
-      </div>`
-    ).join('');
-    container.querySelectorAll('.recent-item').forEach(el => {
-      el.addEventListener('click', () => {
-        const item = list[+el.dataset.i];
-        if (item) { document.getElementById('url-input').value = item.url; loadFromUrl(); }
-      });
-    });
-  } catch(e) {}
-}
-
-renderRecent();
-
-function saveRecentBucket(url, bucket) {
-  try {
-    const list    = JSON.parse(localStorage.getItem(RECENT_BUCKETS_KEY) || '[]');
-    const entry   = { url, name: bucket };
-    const updated = [entry, ...list.filter(i => i.url !== url)].slice(0, 5);
-    localStorage.setItem(RECENT_BUCKETS_KEY, JSON.stringify(updated));
-    renderRecentBuckets();
-  } catch(e) {}
-}
-
-function renderRecentBuckets() {
-  try {
-    const list      = JSON.parse(localStorage.getItem(RECENT_BUCKETS_KEY) || '[]');
-    const section   = document.getElementById('recent-buckets-section');
-    const container = document.getElementById('recent-buckets-list');
-    if (!list.length) { section.style.display = 'none'; return; }
-    section.style.display = 'block';
-    container.innerHTML = list.map((item, i) =>
-      `<div class="recent-item" data-i="${i}">
-        <span class="recent-item-name">${escHtml(item.name)}</span>
-        <span class="recent-item-ver">bucket</span>
-      </div>`
-    ).join('');
-    container.querySelectorAll('.recent-item').forEach(el => {
-      el.addEventListener('click', () => {
-        const item = list[+el.dataset.i];
-        if (item) { document.getElementById('bucket-input').value = item.url; loadBucket(); }
-      });
-    });
-  } catch(e) {}
-}
-
-renderRecentBuckets();
-
 // ══════════════════════════════════════════════
 // BUCKET BROWSER
 // ══════════════════════════════════════════════
-
-// Parse http://host:port/bucket/optional/prefix/ into parts
 function parseBucketUrl(raw) {
   try {
-    const url    = new URL(raw.trim().endsWith('/') ? raw.trim() : raw.trim() + '/');
-    const parts  = url.pathname.replace(/^\//, '').split('/').filter(Boolean);
+    const url   = new URL(raw.trim().endsWith('/') ? raw.trim() : raw.trim() + '/');
+    const parts = url.pathname.replace(/^\//, '').split('/').filter(Boolean);
     if (!parts.length) return null;
     return {
       endpoint: url.origin,
@@ -289,12 +289,8 @@ function parseBucketUrl(raw) {
   } catch(e) { return null; }
 }
 
-// Fetch S3 ListObjectsV2 XML and return { folders, files }
-async function listObjects(endpoint, bucket, prefix) {
-  const url = `${endpoint}/${bucket}?list-type=2&delimiter=%2F${prefix ? '&prefix=' + encodeURIComponent(prefix) : ''}`;
-  const res  = await fetch(url);
-  if (!res.ok) throw new Error('HTTP ' + res.status + ' from bucket');
-  const xml  = new DOMParser().parseFromString(await res.text(), 'application/xml');
+function parseListingXml(text, prefix) {
+  const xml = new DOMParser().parseFromString(text, 'application/xml');
   return {
     folders: Array.from(xml.querySelectorAll('CommonPrefixes Prefix')).map(el => el.textContent),
     files:   Array.from(xml.querySelectorAll('Contents Key'))
@@ -303,41 +299,13 @@ async function listObjects(endpoint, bucket, prefix) {
   };
 }
 
-async function loadBucket() {
-  clearError('bucket-error');
-  const raw    = document.getElementById('bucket-input').value.trim();
-  if (!raw) { showError('bucket-error', 'Please enter a bucket URL.'); return; }
-
-  const parsed = parseBucketUrl(raw);
-  if (!parsed) { showError('bucket-error', 'Could not parse URL. Format: http://host:port/bucket/optional-prefix/'); return; }
-
-  const { endpoint, bucket, prefix } = parsed;
-
-  currentBucketUrl = raw;
-  currentSpecUrl   = null;
-
-  document.getElementById('landing').style.display = 'none';
-  document.getElementById('docs').classList.add('visible');
-  document.getElementById('bucket-url-display').textContent = `${endpoint}/${bucket}/${prefix}`;
-  setSidebarHeader({ title: bucket, sub: 'S3 Bucket', badge: prefix || '/' });
-  updateShareBtn();
-  showSidebarPanel('tree');
-  document.getElementById('main-content').innerHTML = placeholder('📂', 'Select a spec from the tree to view its docs');
-
-  const treeEl = document.getElementById('bucket-tree');
-  treeEl.innerHTML = '<div class="tree-loading">Loading…</div>';
-
-  try {
-    const root = await listObjects(endpoint, bucket, prefix);
-    treeEl.innerHTML = '';
-    renderTreeLevel(treeEl, root, endpoint, bucket);
-    saveRecentBucket(raw, bucket);
-  } catch(e) {
-    treeEl.innerHTML = `<div class="tree-error">Failed to list bucket: ${escHtml(e.message)}<br><br>Check the URL and that the bucket is publicly readable.</div>`;
-  }
+async function listObjects(endpoint, bucket, prefix) {
+  const url = `${endpoint}/${bucket}?list-type=2&delimiter=%2F${prefix ? '&prefix=' + encodeURIComponent(prefix) : ''}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('HTTP ' + res.status + ' from bucket');
+  return parseListingXml(await res.text(), prefix);
 }
 
-// Recursively build the folder/file tree — subfolders are lazy-loaded on expand
 function renderTreeLevel(container, listing, endpoint, bucket) {
   listing.folders.forEach(folderPrefix => {
     const name     = folderPrefix.replace(/\/$/, '').split('/').pop();
@@ -361,9 +329,8 @@ function renderTreeLevel(container, listing, endpoint, bucket) {
         const sub = await listObjects(endpoint, bucket, folderPrefix);
         children.innerHTML = '';
         renderTreeLevel(children, sub, endpoint, bucket);
-        if (!children.children.length) {
+        if (!children.children.length)
           children.innerHTML = '<div class="tree-loading" style="font-style:italic">Empty folder</div>';
-        }
       } catch(e) {
         children.innerHTML = `<div class="tree-error">${escHtml(e.message)}</div>`;
       }
@@ -384,7 +351,7 @@ function renderTreeLevel(container, listing, endpoint, bucket) {
       activeTreeFile = fileEl;
       fileEl.classList.add('active');
 
-      const { endpoint: ep } = parseBucketUrl(document.getElementById('bucket-input').value);
+      const { endpoint: ep } = parseBucketUrl(currentBucketUrl);
       const fileUrl = `${ep}/${bucket}/${key}`;
       currentSpecUrl = fileUrl;
       updateShareBtn();
@@ -395,7 +362,7 @@ function renderTreeLevel(container, listing, endpoint, bucket) {
         const res  = await fetch(fileUrl);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const spec = await res.json();
-        saveRecent(spec, fileUrl);
+        saveRecent({ url: fileUrl, title: spec.info?.title || filename, version: spec.info?.version || '?', type: 'spec' });
         renderDocs(spec, 'bucket');
       } catch(e) {
         document.getElementById('main-content').innerHTML = placeholder('✗', e.message, 'var(--accent2)');
@@ -411,8 +378,7 @@ function renderTreeLevel(container, listing, endpoint, bucket) {
 // ══════════════════════════════════════════════
 function resolveRef(ref, components) {
   if (!ref) return null;
-  const name = ref.split('/').pop();
-  return components?.schemas?.[name] ?? null;
+  return components?.schemas?.[ref.split('/').pop()] ?? null;
 }
 
 function resolveSchema(schema, components) {
@@ -468,17 +434,16 @@ function renderDocs(spec, mode) {
 
   document.title = `${title} — OpenRPC Viewer`;
 
-  setSidebarHeader({
-    title,
-    sub:   'OpenRPC ' + spec.openrpc,
-    badge: mode === 'bucket' ? `v${version}` : `v${version} · OpenRPC ${spec.openrpc}`,
-  });
+  if (mode !== 'bucket') {
+    setSidebarHeader({
+      title,
+      sub:   'OpenRPC ' + spec.openrpc,
+      badge: `v${version} · OpenRPC ${spec.openrpc}`,
+    });
+  }
 
-  if (mode === 'bucket') {
-    // Keep tree visible — only update the header
-  } else {
-    const nav = document.getElementById('sidebar-nav');
-    nav.innerHTML =
+  if (mode !== 'bucket') {
+    document.getElementById('sidebar-nav').innerHTML =
       '<div class="nav-section">Methods</div>' +
       methods.map(m =>
         `<a class="nav-item" href="#m-${safeId(m.name)}"><span class="nav-dot"></span>${escHtml(m.name)}</a>`
@@ -492,7 +457,6 @@ function renderDocs(spec, mode) {
 
   updateShareBtn();
 
-  // ── Page header
   let html = `
     <div class="page-header">
       <h1>${escHtml(title)} <span>API</span></h1>
@@ -510,29 +474,22 @@ function renderDocs(spec, mode) {
     const result     = method.result;
     const methodDesc = method.description || method.summary || '';
 
-    // Params
-    let paramsHtml;
-    if (!params.length) {
-      paramsHtml = '<p class="no-params">No parameters required.</p>';
-    } else {
-      const rows = params.map(p => {
-        const schema = p.schema || {};
-        const req    = p.required !== false;
-        const pdesc  = p.description || schema.description || '';
-        return `<tr>
-          <td class="param-name">${escHtml(p.name)}</td>
-          <td><span class="param-type">${typeLabel(schema, components)}</span></td>
-          <td class="${req ? 'param-req' : 'param-opt'}">${req ? 'required' : 'optional'}</td>
-          <td style="font-size:0.68rem;color:var(--muted)">${escHtml(pdesc)}</td>
-        </tr>`;
-      }).join('');
-      paramsHtml = `<table class="params-table">
-        <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>`;
-    }
+    const paramsHtml = !params.length
+      ? '<p class="no-params">No parameters required.</p>'
+      : `<table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>${params.map(p => {
+            const schema = p.schema || {};
+            const req    = p.required !== false;
+            return `<tr>
+              <td class="param-name">${escHtml(p.name)}</td>
+              <td><span class="param-type">${typeLabel(schema, components)}</span></td>
+              <td class="${req ? 'param-req' : 'param-opt'}">${req ? 'required' : 'optional'}</td>
+              <td style="font-size:0.68rem;color:var(--muted)">${escHtml(p.description || schema.description || '')}</td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table>`;
 
-    // Result
     let resultHtml = '';
     if (result) {
       const rName      = result.schema?.$ref?.split('/').pop() || '';
@@ -573,9 +530,8 @@ function renderDocs(spec, mode) {
       </div>`;
   });
 
-  html += '</div>'; // /methods
+  html += '</div>';
 
-  // Component schemas
   if (Object.keys(schemas).length) {
     html += '<div class="schemas-section" id="schemas"><h2>Component Schemas</h2>';
     Object.entries(schemas).forEach(([name, schema], idx) => {
@@ -599,7 +555,6 @@ function renderDocs(spec, mode) {
 // SCROLL TRACKING
 // ══════════════════════════════════════════════
 function setupScrollTracking() {
-  // Replace element to drop any stale scroll listeners
   const old   = document.getElementById('main-content');
   const fresh = old.cloneNode(true);
   old.parentNode.replaceChild(fresh, old);
@@ -629,20 +584,15 @@ function toggleCard(header) {
 
 // ══════════════════════════════════════════════
 // AUTO-LOAD FROM URL PARAMS
+// ?url= handles both specs and buckets now; ?bucket= kept for back-compat
 // ══════════════════════════════════════════════
 (function() {
   const sp  = new URLSearchParams(window.location.search);
   const hp  = new URLSearchParams(window.location.hash.replace(/^#/, ''));
   const get = key => sp.get(key) || hp.get(key);
-
-  const specUrl   = get('url');
-  const bucketUrl = get('bucket');
-
-  if (specUrl) {
-    document.getElementById('url-input').value = specUrl;
+  const url = get('url') || get('bucket');
+  if (url) {
+    document.getElementById('url-input').value = url;
     loadFromUrl();
-  } else if (bucketUrl) {
-    document.getElementById('bucket-input').value = bucketUrl;
-    loadBucket();
   }
 })();
