@@ -263,6 +263,13 @@
     border-bottom: 1px solid var(--border);
   }
 
+  .sidebar-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+
   .back-btn {
     display: inline-flex;
     align-items: center;
@@ -270,7 +277,6 @@
     font-size: 0.65rem;
     color: var(--muted);
     cursor: pointer;
-    margin-bottom: 14px;
     transition: color 0.15s;
     background: none;
     border: none;
@@ -279,6 +285,44 @@
   }
 
   .back-btn:hover { color: var(--accent); }
+
+  /* ─── SHARE BUTTON ─── */
+  .share-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.62rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+    color: var(--muted);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.04em;
+  }
+
+  .share-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .share-btn.copied { color: var(--accent); border-color: var(--accent); background: rgba(92,255,228,0.08); }
+
+  .share-btn svg {
+    width: 11px; height: 11px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    flex-shrink: 0;
+  }
+
+  /* ─── SHARE UNAVAILABLE TOOLTIP ─── */
+  .share-btn[disabled] {
+    opacity: 0.4;
+    cursor: default;
+    pointer-events: none;
+  }
 
   .sidebar-title {
     font-family: 'Syne', sans-serif;
@@ -639,7 +683,13 @@
 <div id="docs">
   <aside>
     <div class="sidebar-top">
-      <button class="back-btn" onclick="showLanding()">&#8592; back</button>
+      <div class="sidebar-actions">
+        <button class="back-btn" onclick="showLanding()">&#8592; back</button>
+        <button class="share-btn" id="share-btn" onclick="copyShareLink()" title="Copy shareable link">
+          <svg viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+          <span id="share-btn-label">Share</span>
+        </button>
+      </div>
       <div class="sidebar-title" id="sidebar-title">API</div>
       <div class="sidebar-sub" id="sidebar-sub">JSON-RPC</div>
       <span class="version-badge" id="sidebar-badge"></span>
@@ -682,6 +732,9 @@ function clearError(id) {
 }
 
 // ── LOADERS ────────────────────────────────────
+// Tracks the URL of the currently loaded spec (null if loaded via paste/file)
+let currentSpecUrl = null;
+
 async function loadFromUrl() {
   clearError('url-error');
   const url = document.getElementById('url-input').value.trim();
@@ -690,6 +743,7 @@ async function loadFromUrl() {
     const res = await fetch(url);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const spec = await res.json();
+    currentSpecUrl = url;
     saveRecent(spec, url);
     renderDocs(spec);
   } catch (e) {
@@ -701,7 +755,10 @@ function loadFromPaste() {
   clearError('paste-error');
   const raw = document.getElementById('paste-input').value.trim();
   if (!raw) { showError('paste-error', 'Paste your OpenRPC JSON above.'); return; }
-  try { renderDocs(JSON.parse(raw)); }
+  try {
+    currentSpecUrl = null;
+    renderDocs(JSON.parse(raw));
+  }
   catch (e) { showError('paste-error', 'Invalid JSON: ' + e.message); }
 }
 
@@ -714,7 +771,10 @@ function loadFromFile(input) {
 function readFile(file) {
   const reader = new FileReader();
   reader.onload = e => {
-    try { renderDocs(JSON.parse(e.target.result)); }
+    try {
+      currentSpecUrl = null;
+      renderDocs(JSON.parse(e.target.result));
+    }
     catch (err) { showError('file-error', 'Invalid JSON: ' + err.message); }
   };
   reader.readAsText(file);
@@ -724,6 +784,36 @@ function readFile(file) {
 document.getElementById('url-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') loadFromUrl();
 });
+
+// ── SHARE LINK ─────────────────────────────────
+function copyShareLink() {
+  if (!currentSpecUrl) return;
+  const shareUrl = window.location.origin + window.location.pathname + '?url=' + encodeURIComponent(currentSpecUrl);
+  navigator.clipboard.writeText(shareUrl).then(() => {
+    const btn = document.getElementById('share-btn');
+    const label = document.getElementById('share-btn-label');
+    btn.classList.add('copied');
+    label.textContent = 'Copied!';
+    setTimeout(() => {
+      btn.classList.remove('copied');
+      label.textContent = 'Share';
+    }, 2000);
+  }).catch(() => {
+    // Fallback for browsers without clipboard API
+    prompt('Copy this shareable link:', shareUrl);
+  });
+}
+
+function updateShareBtn() {
+  const btn = document.getElementById('share-btn');
+  if (currentSpecUrl) {
+    btn.removeAttribute('disabled');
+    btn.title = 'Copy shareable link';
+  } else {
+    btn.setAttribute('disabled', '');
+    btn.title = 'Share is only available when loaded from a URL';
+  }
+}
 
 // ── RECENT HISTORY ─────────────────────────────
 function saveRecent(spec, url) {
@@ -745,24 +835,32 @@ function renderRecent() {
     const container = document.getElementById('recent-list');
     if (!list.length) { section.style.display = 'none'; return; }
     section.style.display = 'block';
-    container.innerHTML = list.map(item =>
-      '<div class="recent-item" onclick="loadRecentUrl(\'' + escAttr(item.url) + '\')">' +
+    // FIX: use data attribute instead of inline onclick with escAttr to avoid
+    // XSS and broken strings with backslashes or special chars in URLs
+    container.innerHTML = list.map((item, i) =>
+      '<div class="recent-item" data-recent-index="' + i + '">' +
         '<span class="recent-item-name">' + escHtml(item.title) + '</span>' +
         '<span class="recent-item-ver">v' + escHtml(item.version) + '</span>' +
       '</div>'
     ).join('');
+    container.querySelectorAll('.recent-item').forEach(function(el) {
+      el.addEventListener('click', function() {
+        const idx = parseInt(el.dataset.recentIndex, 10);
+        const item = list[idx];
+        if (item) {
+          document.getElementById('url-input').value = item.url;
+          loadFromUrl();
+        }
+      });
+    });
   } catch(e) {}
-}
-
-async function loadRecentUrl(url) {
-  document.getElementById('url-input').value = url;
-  await loadFromUrl();
 }
 
 renderRecent();
 
 // ── NAVIGATION ─────────────────────────────────
 function showLanding() {
+  currentSpecUrl = null;
   document.getElementById('landing').style.display = 'flex';
   document.getElementById('docs').classList.remove('visible');
   document.title = 'OpenRPC Viewer';
@@ -815,17 +913,18 @@ function renderDocs(spec) {
     return;
   }
 
-  const title    = spec.info.title       || 'Untitled API';
-  const version  = spec.info.version     || '?';
-  const desc     = spec.info.description || '';
-  const components = spec.components || {};
-  const methods  = spec.methods || [];
-  const schemas  = (components.schemas) || {};
+  const title      = spec.info.title       || 'Untitled API';
+  const version    = spec.info.version     || '?';
+  const desc       = spec.info.description || '';
+  const components = spec.components       || {};
+  const methods    = spec.methods          || [];
+  const schemas    = (components.schemas)  || {};
 
   document.title = title + ' — OpenRPC Viewer';
   document.getElementById('sidebar-title').textContent = title;
   document.getElementById('sidebar-sub').textContent   = 'OpenRPC ' + spec.openrpc;
   document.getElementById('sidebar-badge').textContent = 'v' + version + ' · OpenRPC ' + spec.openrpc;
+  updateShareBtn();
 
   // Sidebar nav
   const nav = document.getElementById('sidebar-nav');
@@ -852,8 +951,8 @@ function renderDocs(spec) {
   html += '<div class="methods">';
 
   methods.forEach(function(method, idx) {
-    const params   = method.params || [];
-    const result   = method.result;
+    const params     = method.params || [];
+    const result     = method.result;
     const methodDesc = method.description || method.summary || '';
 
     // Params
@@ -946,10 +1045,6 @@ function escHtml(str) {
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-function escAttr(str) {
-  return String(str || '').replace(/'/g, "\\'");
-}
-
 function safeId(str) {
   return String(str).replace(/[^a-zA-Z0-9_-]/g,'_');
 }
@@ -975,6 +1070,18 @@ function setupScrollTracking() {
     });
   });
 }
+
+// ── AUTO-LOAD FROM URL PARAM ───────────────────
+// FIX: check both search and hash independently and merge, so both can coexist
+(function() {
+  const searchParams = new URLSearchParams(window.location.search);
+  const hashParams   = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const specUrl      = searchParams.get('url') || hashParams.get('url');
+  if (specUrl) {
+    document.getElementById('url-input').value = specUrl;
+    loadFromUrl();
+  }
+})();
 </script>
 </body>
 </html>
