@@ -35,10 +35,10 @@ Drop or select a local `.json` file.
 ### Option 4 — Deep Link
 Auto-load a spec by passing a `url` parameter directly in the link. Two formats are supported:
 
-| Format | Example |
-|---|---|
+| Format       | Example                                                                      |
+|--------------|------------------------------------------------------------------------------|
 | Query string | `https://bktb888.github.io/OpenRPCDocs?url=https://example.com/openrpc.json` |
-| Hash | `https://bktb888.github.io/OpenRPCDocs#url=https://example.com/openrpc.json` |
+| Hash         | `https://bktb888.github.io/OpenRPCDocs#url=https://example.com/openrpc.json` |
 
 ---
 

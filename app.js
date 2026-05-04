@@ -67,7 +67,7 @@ function handleBack() {
     currentSpecUrl = null;
     updateShareBtn();
     showSidebarPanel('tree');
-    document.getElementById('main-content').innerHTML = placeholder('📂', 'Select a spec from the tree to view its docs');
+    document.getElementById('main-content').innerHTML = placeholder('📂', 'Choose a spec from the tree to view its docs');
     if (activeTreeFile) { activeTreeFile.classList.remove('active'); activeTreeFile = null; }
     const parsed = parseBucketUrl(currentBucketUrl);
     if (parsed) setSidebarHeader({ title: parsed.bucket, sub: 'S3 Bucket', badge: parsed.prefix || '/' });
@@ -144,7 +144,7 @@ function saveRecent(entry) {
     const updated = [entry, ...list.filter(i => i.url !== entry.url)].slice(0, 8);
     localStorage.setItem(RECENT_KEY, JSON.stringify(updated));
     renderRecent();
-  } catch(e) {}
+  } catch(e) { console.warn('saveRecent failed:', e); }
 }
 
 function renderRecent() {
@@ -168,7 +168,7 @@ function renderRecent() {
         loadFromUrl();
       });
     });
-  } catch(e) {}
+  } catch(e) { console.warn('renderRecent failed:', e); }
 }
 
 renderRecent();
@@ -182,18 +182,23 @@ async function loadFromUrl() {
   const url = document.getElementById('url-input').value.trim();
   if (!url) { showError('url-error', 'Please enter a URL.'); return; }
 
+  let text;
   try {
     const res = await fetch(url);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const text = await res.text();
-
-    if (text.trimStart().startsWith('<') && text.includes('ListBucketResult')) {
-      openBucketFromText(url);
-    } else {
-      openSpecFromText(url, text);
+    if (!res.ok) {
+      showError('url-error', `Failed to load: HTTP ${res.status}. (CORS may block cross-origin requests — try Paste or File tab.)`);
+      return;
     }
+    text = await res.text();
   } catch (e) {
     showError('url-error', 'Failed to load: ' + e.message + '. (CORS may block cross-origin requests — try Paste or File tab.)');
+    return;
+  }
+
+  if (text.trimStart().startsWith('<') && text.includes('ListBucketResult')) {
+    await openBucketFromText(url);
+  } else {
+    openSpecFromText(url, text);
   }
 }
 
@@ -223,7 +228,7 @@ async function openBucketFromText(url) {
   setSidebarHeader({ title: bucket, sub: 'S3 Bucket', badge: prefix || '/' });
   updateShareBtn();
   showSidebarPanel('tree');
-  document.getElementById('main-content').innerHTML = placeholder('📂', 'Select a spec from the tree to view its docs');
+  document.getElementById('main-content').innerHTML = placeholder('📂', 'Choose a spec from the tree to view its docs');
 
   const treeEl = document.getElementById('bucket-tree');
   treeEl.innerHTML = '<div class="tree-loading">Loading…</div>';
@@ -291,11 +296,16 @@ function parseBucketUrl(raw) {
 
 function parseListingXml(text, prefix) {
   const xml = new DOMParser().parseFromString(text, 'application/xml');
+  const collect = (parentTag, childTag) => {
+    const out = [];
+    Array.from(xml.getElementsByTagName(parentTag)).forEach(parent => {
+      Array.from(parent.getElementsByTagName(childTag)).forEach(child => out.push(child.textContent));
+    });
+    return out;
+  };
   return {
-    folders: Array.from(xml.querySelectorAll('CommonPrefixes Prefix')).map(el => el.textContent),
-    files:   Array.from(xml.querySelectorAll('Contents Key'))
-               .map(el => el.textContent)
-               .filter(key => key !== prefix && key.endsWith('.json')),
+    folders: collect('CommonPrefixes', 'Prefix'),
+    files:   collect('Contents', 'Key').filter(key => key !== prefix && key.endsWith('.json')),
   };
 }
 
@@ -351,8 +361,9 @@ function renderTreeLevel(container, listing, endpoint, bucket) {
       activeTreeFile = fileEl;
       fileEl.classList.add('active');
 
-      const { endpoint: ep } = parseBucketUrl(currentBucketUrl);
-      const fileUrl = `${ep}/${bucket}/${key}`;
+      const parsed = parseBucketUrl(currentBucketUrl);
+      if (!parsed) return;
+      const fileUrl = `${parsed.endpoint}/${bucket}/${key}`;
       currentSpecUrl = fileUrl;
       updateShareBtn();
 
@@ -360,7 +371,10 @@ function renderTreeLevel(container, listing, endpoint, bucket) {
 
       try {
         const res  = await fetch(fileUrl);
-        if (!res.ok) throw new Error('HTTP ' + res.status);
+        if (!res.ok) {
+          document.getElementById('main-content').innerHTML = placeholder('✗', 'HTTP ' + res.status, 'var(--accent2)');
+          return;
+        }
         const spec = await res.json();
         saveRecent({ url: fileUrl, title: spec.info?.title || filename, version: spec.info?.version || '?', type: 'spec' });
         renderDocs(spec, 'bucket');
@@ -450,7 +464,9 @@ function renderDocs(spec, mode) {
       ).join('') +
       (Object.keys(schemas).length
         ? '<div class="nav-section" style="margin-top:12px">Schemas</div>' +
-          '<a class="nav-item" href="#schemas"><span class="nav-dot schema-dot"></span>Component Schemas</a>'
+          Object.keys(schemas).map(name =>
+            `<a class="nav-item" href="#schema-${safeId(name)}"><span class="nav-dot schema-dot"></span>${escHtml(name)}</a>`
+          ).join('')
         : '');
     showSidebarPanel('nav');
   }
