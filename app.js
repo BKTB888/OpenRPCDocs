@@ -175,43 +175,120 @@ renderRecent();
 
 // ══════════════════════════════════════════════
 // SMART URL LOADER
-// Fetches the URL, detects whether it's a bucket listing or a spec, routes accordingly
+// Routes by scheme/content: WebSocket rpc.discover, S3 bucket listing,
+// static spec, or HTTP rpc.discover fallback.
 // ══════════════════════════════════════════════
 async function loadFromUrl() {
   clearError('url-error');
   const url = document.getElementById('url-input').value.trim();
   if (!url) { showError('url-error', 'Please enter a URL.'); return; }
+  const lower = url.toLowerCase();
 
-  let text;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) {
-      showError('url-error', `Failed to load: HTTP ${res.status}. (CORS may block cross-origin requests — try Paste or File tab.)`);
-      return;
-    }
-    text = await res.text();
-  } catch (e) {
-    showError('url-error', 'Failed to load: ' + e.message + '. (CORS may block cross-origin requests — try Paste or File tab.)');
+  // WebSocket → JSON-RPC rpc.discover
+  if (lower.startsWith('ws://') || lower.startsWith('wss://')) {
+    try { openSpec(url, await discoverViaWebSocket(url)); }
+    catch (e) { showError('url-error', 'Failed to load: ' + e.message); }
     return;
   }
 
-  if (text.trimStart().startsWith('<') && text.includes('ListBucketResult')) {
+  // HTTP(S): fetch as text, then detect bucket listing vs. static spec.
+  let text;
+  try {
+    const res = await fetch(url);
+    if (res.ok) text = await res.text();
+  } catch (e) { /* network/CORS error — fall through to rpc.discover POST */ }
+
+  if (text && text.trimStart().startsWith('<') && text.includes('ListBucketResult')) {
     await openBucketFromText(url);
-  } else {
-    openSpecFromText(url, text);
+    return;
+  }
+  if (text) {
+    try {
+      const obj = JSON.parse(text);
+      if (looksLikeOpenRpc(obj)) { openSpec(url, obj); return; }
+    } catch (e) { /* not a static spec → try service discovery */ }
+  }
+
+  // Not a static spec or bucket → HTTP POST rpc.discover fallback.
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(makeDiscoverRequest())
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    openSpec(url, parseDiscoverResponse(await res.text()));
+  } catch (e) {
+    showError('url-error', 'Failed to load: ' + e.message + '. (CORS may block cross-origin requests — try Paste or File tab.)');
   }
 }
 
+// Render an already-parsed OpenRPC spec object (from ws / POST / static JSON).
+function openSpec(url, spec) {
+  currentSpecUrl   = url;
+  currentBucketUrl = null;
+  saveRecent({ url, title: spec.info?.title || 'Untitled', version: spec.info?.version || '?', type: 'spec' });
+  renderDocs(spec, 'url');
+}
+
 function openSpecFromText(url, text) {
-  try {
-    const spec = JSON.parse(text);
-    currentSpecUrl   = url;
-    currentBucketUrl = null;
-    saveRecent({ url, title: spec.info?.title || 'Untitled', version: spec.info?.version || '?', type: 'spec' });
-    renderDocs(spec, 'url');
-  } catch(e) {
-    showError('url-error', 'Not valid JSON or OpenRPC: ' + e.message);
+  try { openSpec(url, JSON.parse(text)); }
+  catch(e) { showError('url-error', 'Not valid JSON or OpenRPC: ' + e.message); }
+}
+
+// ── JSON-RPC rpc.discover transport ─────────────
+// Standard OpenRPC service-discovery request.
+function makeDiscoverRequest() {
+  return { jsonrpc: '2.0', method: 'rpc.discover', params: [], id: 1 };
+}
+
+// Extracts the OpenRPC document from a JSON-RPC response (string or object).
+function parseDiscoverResponse(raw) {
+  const msg = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  if (msg && msg.error) {
+    const e = msg.error;
+    throw new Error('rpc.discover error: ' + (e.message || JSON.stringify(e)));
   }
+  if (!msg || !msg.result) throw new Error('server did not return an OpenRPC document');
+  return msg.result;
+}
+
+// True if the value already looks like a raw OpenRPC document (not a JSON-RPC envelope).
+function looksLikeOpenRpc(obj) {
+  if (!obj || typeof obj !== 'object' || obj.jsonrpc) return false;
+  return typeof obj.openrpc === 'string' || Array.isArray(obj.methods);
+}
+
+// WebSocket: connect, send rpc.discover, resolve with the returned document.
+function discoverViaWebSocket(url, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let ws;
+    const finish = (fn, arg) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { if (ws) ws.close(); } catch (e) {}
+      fn(arg);
+    };
+    const timer = setTimeout(
+      () => finish(reject, new Error('WebSocket timed out after ' + (timeoutMs / 1000) + 's')),
+      timeoutMs
+    );
+    try {
+      ws = new WebSocket(url);
+    } catch (e) {
+      finish(reject, new Error('invalid WebSocket URL'));
+      return;
+    }
+    ws.onopen    = () => ws.send(JSON.stringify(makeDiscoverRequest()));
+    ws.onmessage = (event) => {
+      try { finish(resolve, parseDiscoverResponse(event.data)); }
+      catch (e) { finish(reject, e); }
+    };
+    ws.onerror = () => finish(reject, new Error('WebSocket connection error'));
+    ws.onclose = () => finish(reject, new Error('WebSocket closed before a response'));
+  });
 }
 
 async function openBucketFromText(url) {
